@@ -166,7 +166,7 @@ app.post('/login', (req, res) => {
         `);
     }
 });
-// 6. Upgraded Stable Core Proxy Routing Pipeline Function
+// 6. Hardened Core Routing Pipeline & Network Binding Filter
 app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
     const cookies = req.headers.cookie ? Object.fromEntries(req.headers.cookie.split('; ').map(c => c.split('='))) : {};
@@ -183,7 +183,6 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
         changeOrigin: true,
         followRedirects: true,
         ws: true,
-        // Robust functional path rewriting engine to avoid object matching crashes
         pathRewrite: function(pathStr, req) {
             const pattern = `/pipeline/${protocol}/${domain}`;
             return pathStr.startsWith(pattern) ? pathStr.replace(pattern, '') : pathStr;
@@ -202,7 +201,7 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
                 if (pRes.headers['location']) {
                     let loc = pRes.headers['location'];
                     const match = loc.match(/^(https?):\/\/(.*)/);
-                    if (match) pRes.headers['location'] = `/pipeline/${match[1]}/${match[2]}`;
+                    if (match) pRes.headers['location'] = `/pipeline/${match}/${match}`;
                 }
             }
         },
@@ -213,7 +212,14 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
     })(req, res, next);
 });
 
-const server = app.listen(PORT, () => console.log(`Lifeless Proxy Kernel Engine listening securely on port ${PORT}`));
+// Explicitly bind host to 0.0.0.0 to fix Render 502 Bad Gateway errors
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Lifeless Proxy Kernel Engine listening securely on host 0.0.0.0, port ${PORT}`);
+});
+
+// Set network timeouts to 120 seconds to align with Render's load balancer rules
+server.keepAliveTimeout = 120000;
+server.headersTimeout = 121000;
 
 server.on('upgrade', (req, socket, head) => {
     console.log('[WEBSOCKET CONNECTION] Upstream protocol upgrade requested.');
