@@ -83,8 +83,6 @@ app.post('/login', (req, res) => {
                 <title>Lifeless Console // Active</title>
                 <style>
                     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0a0a0c; font-family: monospace; }
-                    
-                    /* Top Navigation Control Strip (Lunar v2 Aesthetic) */
                     .omnibar { 
                         display: flex; align-items: center; background: #121216; 
                         border-bottom: 1px solid #990000; padding: 10px 20px; box-sizing: border-box; 
@@ -97,7 +95,6 @@ app.post('/login', (req, res) => {
                         border-radius: 6px; font-family: monospace; 
                     }
                     input#target:focus { outline: none; border-color: #ff3333; }
-                    
                     .btn-group { display: flex; gap: 8px; margin-left: 12px; }
                     button { 
                         background: #1a1a22; color: #ff3333; border: 1px solid #990000; 
@@ -105,15 +102,10 @@ app.post('/login', (req, res) => {
                         border-radius: 6px; cursor: pointer; text-transform: uppercase; 
                     }
                     button:hover { background: #ff3333; color: white; }
-                    
-                    /* Dynamic Main Screen Viewer */
                     .viewport-container { width: 100%; height: calc(100% - 55px); background: #fff; position: relative; }
                     iframe#proxyViewport { width: 100%; height: 100%; border: none; margin: 0; padding: 0; }
-                    
-                    /* Hidden/Full-Screen adjustments toggle */
                     .fullscreen-active .omnibar { margin-top: -55px; }
                     .fullscreen-active .viewport-container { height: 100%; }
-                    
                     #toggleIndicator {
                         position: absolute; top: 10px; right: 20px; background: rgba(18,18,22,0.8);
                         color: #ff3333; border: 1px solid #990000; padding: 5px 10px; font-size: 11px;
@@ -122,8 +114,6 @@ app.post('/login', (req, res) => {
                 </style>
             </head>
             <body>
-
-                <!-- Top Menu Panel -->
                 <div class="omnibar" id="topBar">
                     <div class="brand">LIFELESS//V2</div>
                     <input type="text" id="target" placeholder="Enter target site destination (e.g., wikipedia.org)..." autocomplete="off">
@@ -132,27 +122,17 @@ app.post('/login', (req, res) => {
                         <button onclick="toggleBar(true)" style="border-color:#333;color:#8a8a93;">Hide UI</button>
                     </div>
                 </div>
-
-                <!-- Hidden UI Restore Pin -->
                 <div id="toggleIndicator" onclick="toggleBar(false)">Show Bar</div>
-
-                <!-- Website Frame Port -->
                 <div class="viewport-container" id="viewBox">
                     <iframe id="proxyViewport" src="about:blank"></iframe>
                 </div>
-
                 <script>
                     function tunnelSite() {
                         let input = document.getElementById('target').value.trim();
                         if(!input) return;
-
                         let cleanUrl = input.replace(/^(https?:\\/\\/)?/, '');
-                        
-                        // Updates the internal viewport reference link directly
-                        // This allows you to browse without mutating your top browser URL address bar
                         document.getElementById('proxyViewport').src = '/pipeline/https/' + cleanUrl;
                     }
-
                     function toggleBar(hide) {
                         if(hide) {
                             document.body.classList.add('fullscreen-active');
@@ -162,12 +142,9 @@ app.post('/login', (req, res) => {
                             document.getElementById('toggleIndicator').style.display = 'none';
                         }
                     }
-
                     document.getElementById('target').addEventListener('keypress', function (e) {
                         if (e.key === 'Enter') { tunnelSite(); }
                     });
-
-                    // Anti-Tracking Emergency Panic Key Combo (Press G + C keys simultaneously)
                     let keysPressed = {};
                     document.addEventListener('keydown', (e) => {
                         keysPressed[e.key.toLowerCase()] = true;
@@ -189,7 +166,6 @@ app.post('/login', (req, res) => {
         `);
     }
 });
-
 // 6. Dynamic Reverse-Proxy Pipeline Distribution Engine
 app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
@@ -201,28 +177,28 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
     }
 
     const { protocol, domain } = req.params;
-createProxyMiddleware({
-target: ${protocol}://${domain},
-changeOrigin: true,
-followRedirects: true,
-pathRewrite: (path) => path.replace(/pipeline/${protocol}/${domain}, ''),
-on: {
-proxyReq: (pReq) => {
-// Wipe identifiable networking logs from upstream web hosts
-pReq.removeHeader('x-forwarded-for');
-pReq.removeHeader('via');
-pReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-},
-proxyRes: (pRes) => {
-// Intercept server redirections and latch them within our internal proxy pipeline format
-if (pRes.headers['location']) {
-let loc = pRes.headers['location'];
-const match = loc.match(/^(https?)://(.*)/);
-if (match) pRes.headers['location'] = /pipeline/${match[1]}/${match[2]};
-}
-}
-},
-onError: (err, req, res) => res.status(502).send('Gateway Error: Remote data pipeline sync interface dropped out.')
-})(req, res, next);
+    
+    createProxyMiddleware({
+        target: `${protocol}://${domain}`,
+        changeOrigin: true,
+        followRedirects: true,
+        pathRewrite: (path) => path.replace(`/pipeline/${protocol}/${domain}`, ''),
+        on: {
+            proxyReq: (pReq) => {
+                pReq.removeHeader('x-forwarded-for');
+                pReq.removeHeader('via');
+                pReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+            },
+            proxyRes: (pRes) => {
+                if (pRes.headers['location']) {
+                    let loc = pRes.headers['location'];
+                    const match = loc.match(/^(https?):\/\/(.*)/);
+                    if (match) pRes.headers['location'] = `/pipeline/${match[1]}/${match[2]}`;
+                }
+            }
+        },
+        onError: (err, req, res) => res.status(502).send('Gateway Error: Remote data pipeline sync interface dropped out.')
+    })(req, res, next);
 });
-app.listen(PORT, () => console.log(Lifeless Proxy Kernel Engine listening securely on port ${PORT}));
+
+app.listen(PORT, () => console.log(`Lifeless Proxy Kernel Engine listening securely on port ${PORT}`));
