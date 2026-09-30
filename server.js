@@ -8,15 +8,30 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
-const BANNED_IPS = new Set((process.env.BANNED_IPS || "").split(',').map(ip => ip.trim()));
+// Change this "Seed" on Render to whatever you want. This forms the base of your moving password.
+const MASTER_SEED = process.env.MASTER_SEED || "LifelessSystemDefaultSeed123!"; 
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Token Management Mechanics
+// 1. Math Module: Computes the 24-Hour Active Password based on date tracking
+function getDailyPassword() {
+    const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    const hash = crypto.createHash('sha256')
+        .update(MASTER_SEED + today)
+        .digest('hex');
+    
+    // Returns a distinct, easy-to-read 8 character key that shifts every single day
+    return "LP-" + hash.substring(0, 8).toUpperCase();
+}
+
+// Print the active token to server backend console on startup for verification
+console.log(`[SYSTEM INITIALIZATION] Today's active key is: ${getDailyPassword()}`);
+
+// Token Session Engine
 function generateToken(ip) {
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString('base64url');
-    const payload = Buffer.from(JSON.stringify({ sub: ip, exp: Math.floor(Date.now() / 1000) + (3600 * 3) })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ sub: ip, exp: Math.floor(Date.now() / 1000) + 14400 })).toString('base64url');
     const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
     return `${header}.${payload}.${signature}`;
 }
@@ -34,65 +49,72 @@ function verifyToken(token, expectedIp) {
     } catch { return false; }
 }
 
-// Firewall Core
-app.use((req, res, next) => {
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
-    if (BANNED_IPS.has(clientIp)) {
-        return res.status(403).send('ERR_CONNECTION_REFUSED');
-    }
-    next();
-});
-
-// Serve the Innocent Decoy Frontend App
+// Serve the Lunar Front-End Layout
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Inside Dashboard Interface Route (Triggered from Blank Box Click Action)
-app.get('/initialize-vault-session', (req, res) => {
+// Authentication Endpoint Processing
+app.post('/login', (req, res) => {
+    const { password } = req.body;
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
-    const secureToken = generateToken(clientIp);
-    
-    res.cookie('__Secure-Tunnel-Auth', secureToken, { httpOnly: true, secure: true, sameSite: 'strict' });
-    
-    res.send(`
-        <html>
-        <head>
-            <title>Internal Console</title>
-            <style>
-                body { background:#0d1117; color:#58a6ff; font-family:monospace; text-align:center; padding-top:100px; }
-                input, button { background:#161b22; color:#c9d1d9; border:1px solid #30363d; padding:12px; font-size:16px; margin:10px; border-radius:6px; }
-                button { cursor:pointer; color:#58a6ff; font-weight:bold; }
-            </style>
-        </head>
-        <body>
-            <h3>Pipeline Console Established Successfully</h3>
-            <p>Input target external network domain destination below to construct reverse map mapping layer.</p>
-            <input type="text" id="target" placeholder="example.com" style="width:300px;">
-            <button onclick="launch()">Map Pipeline</button>
-            <script>
-                function launch() {
-                    let d = document.getElementById('target').value.replace(/^(https?:\\/\\/)?/, '');
-                    window.location.href = '/pipeline/https/' + d;
-                }
-                // Backup panic hotkey inside proxy environment mapping canvas
-                document.addEventListener('keydown', (e) => {
-                    if(e.key.toLowerCase() === 'c' && e.ctrlKey) { window.location.href = "https://google.com"; }
-                });
-            </script>
-        </body>
-        </html>
-    `);
+    const currentTargetKey = getDailyPassword();
+
+    if (password === currentTargetKey) {
+        const secureToken = generateToken(clientIp);
+        res.cookie('__Lifeless-Tunnel-Auth', secureToken, { httpOnly: true, secure: true, sameSite: 'strict' });
+        
+        // Return browser panel dashboard matching Lunar v2 Crimson Theme
+        return res.send(`
+            <html>
+            <head>
+                <title>Lifeless Console</title>
+                <style>
+                    body { background:#0a0a0c; color:#ff3333; font-family:monospace; text-align:center; padding-top:100px; margin:0; }
+                    .wrapper { background:#121216; border:1px solid #990000; padding:40px; display:inline-block; border-radius:12px; box-shadow:0 0 20px rgba(255,51,51,0.1); }
+                    input, button { background:#1a1a22; color:#f5f5f7; border:1px solid #2e2e38; padding:14px; font-size:16px; margin:10px; border-radius:6px; }
+                    input:focus { outline:none; border-color:#ff3333; }
+                    button { cursor:pointer; color:#ff3333; font-weight:bold; border-color:#990000; text-transform:uppercase; }
+                    button:hover { background:#ff3333; color:white; }
+                </style>
+            </head>
+            <body>
+                <div class="wrapper">
+                    <h3>[ PI-LINE TERMINAL READY ]</h3>
+                    <p style="color:#8a8a93; font-size:12px;">Proxy session active. Target destination maps inside custom frame logic.</p>
+                    <input type="text" id="target" placeholder="destinationurl.com" style="width:320px;" autocomplete="off">
+                    <button onclick="launch()">Tunnel</button>
+                </div>
+                <script>
+                    function launch() {
+                        let d = document.getElementById('target').value.replace(/^(https?:\\/\\/)?/, '');
+                        window.location.href = '/pipeline/https/' + d;
+                    }
+                    document.addEventListener('keydown', (e) => {
+                        if(e.key.toLowerCase() === 'c' && e.altKey) { window.location.href = "https://google.com"; }
+                    });
+                </script>
+            </body>
+            </html>
+        `);
+    } else {
+        res.status(401).send(`
+            <body style="background:#0a0a0c; color:#ff3333; font-family:monospace; text-align:center; padding-top:100px;">
+                <h3>ACCESS DENIED: KEY SIGNATURE INVALID</h3>
+                <p style="color:#8a8a93;"><a href="/" style="color:#ff3333;">Return to Gateway</a></p>
+            </body>
+        `);
+    }
 });
 
 // Dynamic Core Pipeline Proxy Engine Route
 app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
     const cookies = req.headers.cookie ? Object.fromEntries(req.headers.cookie.split('; ').map(c => c.split('='))) : {};
-    const token = cookies['__Secure-Tunnel-Auth'];
+    const token = cookies['__Lifeless-Tunnel-Auth'];
 
     if (!verifyToken(token, clientIp)) {
-        return res.status(403).send('Authentication missing or invalid token signature mapping credentials.');
+        return res.status(403).send('Pipeline access verification failed: Invalid signature authentication lifecycle.');
     }
 
     const { protocol, domain } = req.params;
@@ -112,12 +134,12 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
                 if (pRes.headers['location']) {
                     let loc = pRes.headers['location'];
                     const match = loc.match(/^(https?):\/\/(.*)/);
-                    if (match) pRes.headers['location'] = `/pipeline/${match[1]}/${match[2]}`;
+                    if (match) pRes.headers['location'] = `/pipeline/${match}/${match}`;
                 }
             }
         },
-        onError: (err, req, res) => res.status(502).send('Host connection timeout error payload mapping index.')
+        onError: (err, req, res) => res.status(502).send('Remote core mapping pipe dropped runtime sync stream.')
     })(req, res, next);
 });
 
-app.listen(PORT, () => console.log(`Stealth active on port ${PORT}`));
+app.listen(PORT, () => console.log(`Lifeless Engine routing active on container port ${PORT}`));
