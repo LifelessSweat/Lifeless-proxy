@@ -53,7 +53,7 @@ function verifyToken(token, expectedIp) {
 
 // 3. Hardware IP Firewall Filter
 app.use((req, res, next) => {
-    const clientIp = req.headers['x-forwarded-for']?.split(',').trim() || req.socket.remoteAddress;
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
     if (BANNED_IPS.has(clientIp)) {
         return res.status(403).send('ERR_CONNECTION_REFUSED');
     }
@@ -68,7 +68,7 @@ app.get('/', (req, res) => {
 // 5. Authentication Processing & Dashboard Delivery (URL Locking Interface)
 app.post('/login', (req, res) => {
     const { password } = req.body;
-    const clientIp = req.headers['x-forwarded-for']?.split(',').trim() || req.socket.remoteAddress;
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
     const currentTargetKey = getDailyPassword();
 
     if (password === currentTargetKey) {
@@ -166,9 +166,9 @@ app.post('/login', (req, res) => {
         `);
     }
 });
-// 6. Upgraded Dynamic Reverse-Proxy Pipeline with Header Stripping & WebSockets
+// 6. Upgraded Stable Core Proxy Routing Pipeline Function
 app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
-    const clientIp = req.headers['x-forwarded-for']?.split(',').trim() || req.socket.remoteAddress;
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
     const cookies = req.headers.cookie ? Object.fromEntries(req.headers.cookie.split('; ').map(c => c.split('='))) : {};
     const token = cookies['__Lifeless-Tunnel-Auth'];
 
@@ -182,8 +182,12 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
         target: `${protocol}://${domain}`,
         changeOrigin: true,
         followRedirects: true,
-        ws: true, // Enables proxying of WebSocket connections
-        pathRewrite: (path) => path.replace(`/pipeline/${protocol}/${domain}`, ''),
+        ws: true,
+        // Robust functional path rewriting engine to avoid object matching crashes
+        pathRewrite: function(pathStr, req) {
+            const pattern = `/pipeline/${protocol}/${domain}`;
+            return pathStr.startsWith(pattern) ? pathStr.replace(pattern, '') : pathStr;
+        },
         on: {
             proxyReq: (pReq) => {
                 pReq.removeHeader('x-forwarded-for');
@@ -191,7 +195,6 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
                 pReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
             },
             proxyRes: (pRes) => {
-                // Stripping anti-iframe security parameters
                 delete pRes.headers['x-frame-options'];
                 delete pRes.headers['content-security-policy'];
                 delete pRes.headers['content-security-policy-report-only'];
@@ -199,11 +202,14 @@ app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
                 if (pRes.headers['location']) {
                     let loc = pRes.headers['location'];
                     const match = loc.match(/^(https?):\/\/(.*)/);
-                    if (match) pRes.headers['location'] = `/pipeline/${match}/${match}`;
+                    if (match) pRes.headers['location'] = `/pipeline/${match[1]}/${match[2]}`;
                 }
             }
         },
-        onError: (err, req, res) => res.status(502).send('Gateway Error: Remote data pipeline sync interface dropped out.')
+        onError: (err, req, res) => {
+            console.error('[PROXY ERROR]', err.message);
+            res.status(502).send('Gateway Error: Remote target server connection dropped.');
+        }
     })(req, res, next);
 });
 
