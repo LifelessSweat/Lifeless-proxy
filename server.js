@@ -1,119 +1,123 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configurations via Environment Variables (Set these securely in Render)
-const PROXY_PASSWORD = process.env.PROXY_PASSWORD || "MySuperSecretPassword123";
-// Provide a comma-separated list of IPs to block (e.g., "192.168.1.1,203.0.113.5")
-const BANNED_IPS = (process.env.BANNED_IPS || "").split(',').map(ip => ip.trim());
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const BANNED_IPS = new Set((process.env.BANNED_IPS || "").split(',').map(ip => ip.trim()));
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// 1. IP Blocker Middleware
+// Token Management Mechanics
+function generateToken(ip) {
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ sub: ip, exp: Math.floor(Date.now() / 1000) + (3600 * 3) })).toString('base64url');
+    const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
+    return `${header}.${payload}.${signature}`;
+}
+
+function verifyToken(token, expectedIp) {
+    if (!token) return false;
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    const [header, payload, signature] = parts;
+    const expectedSignature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
+    if (signature !== expectedSignature) return false;
+    try {
+        const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
+        return decoded.exp > Math.floor(Date.now() / 1000) && decoded.sub === expectedIp;
+    } catch { return false; }
+}
+
+// Firewall Core
 app.use((req, res, next) => {
-    // Extract client IP, accounting for Render's reverse proxy headers
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    
-    if (BANNED_IPS.includes(clientIp)) {
-        console.log(`[SECURITY] Blocked request from banned IP: ${clientIp}`);
-        return res.status(403).send('Access Denied: Your IP address is restricted.');
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+    if (BANNED_IPS.has(clientIp)) {
+        return res.status(403).send('ERR_CONNECTION_REFUSED');
     }
     next();
 });
 
-// Simple In-Memory Session Object (For demonstration; resets on server restart)
-let authenticatedSessions = new Set();
-
-// 2. Simple Gateway HTML UI
+// Serve the Innocent Decoy Frontend App
 app.get('/', (req, res) => {
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Inside Dashboard Interface Route (Triggered from Blank Box Click Action)
+app.get('/initialize-vault-session', (req, res) => {
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+    const secureToken = generateToken(clientIp);
+    
+    res.cookie('__Secure-Tunnel-Auth', secureToken, { httpOnly: true, secure: true, sameSite: 'strict' });
     
     res.send(`
-        <!DOCTYPE html>
         <html>
         <head>
-            <title>Private Proxy Gateway</title>
+            <title>Internal Console</title>
             <style>
-                body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; padding-top: 50px; }
-                input, button { padding: 10px; font-size: 16px; margin: 10px; border-radius: 4px; border: none; }
-                input[type="text"] { width: 300px; }
-                button { background: #007bff; color: white; cursor: pointer; }
-                .info { color: #888; font-size: 12px; }
+                body { background:#0d1117; color:#58a6ff; font-family:monospace; text-align:center; padding-top:100px; }
+                input, button { background:#161b22; color:#c9d1d9; border:1px solid #30363d; padding:12px; font-size:16px; margin:10px; border-radius:6px; }
+                button { cursor:pointer; color:#58a6ff; font-weight:bold; }
             </style>
         </head>
         <body>
-            <h2>Private Access Proxy</h2>
-            <p class="info">Your IP: ${clientIp}</p>
-            <form action="/login" method="POST">
-                <input type="password" name="password" placeholder="Enter Access Password" required><br>
-                <button type="submit">Authenticate</button>
-            </form>
+            <h3>Pipeline Console Established Successfully</h3>
+            <p>Input target external network domain destination below to construct reverse map mapping layer.</p>
+            <input type="text" id="target" placeholder="example.com" style="width:300px;">
+            <button onclick="launch()">Map Pipeline</button>
+            <script>
+                function launch() {
+                    let d = document.getElementById('target').value.replace(/^(https?:\\/\\/)?/, '');
+                    window.location.href = '/pipeline/https/' + d;
+                }
+                // Backup panic hotkey inside proxy environment mapping canvas
+                document.addEventListener('keydown', (e) => {
+                    if(e.key.toLowerCase() === 'c' && e.ctrlKey) { window.location.href = "https://google.com"; }
+                });
+            </script>
         </body>
         </html>
     `);
 });
 
-// 3. Login Authentication Route
-app.post('/login', (req, res) => {
-    const { password } = req.body;
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+// Dynamic Core Pipeline Proxy Engine Route
+app.use('/pipeline/:protocol/:domain(*)', (req, res, next) => {
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+    const cookies = req.headers.cookie ? Object.fromEntries(req.headers.cookie.split('; ').map(c => c.split('='))) : {};
+    const token = cookies['__Secure-Tunnel-Auth'];
 
-    if (password === PROXY_PASSWORD) {
-        authenticatedSessions.add(clientIp);
-        return res.send(`
-            <html>
-            <body style="background:#121212; color:#fff; font-family:Arial; text-align:center; padding-top:50px;">
-                <h3>Authenticated Successfully!</h3>
-                <p>To browse a site, use the URL format: <code>/proxy/https/example.com</code></p>
-                <input type="text" id="targetUrl" placeholder="example.com" style="padding:10px; width:250px;">
-                <button onclick="go()" style="padding:10px; background:#28a745; color:white; border:none; cursor:pointer;">Go</button>
-                <script>
-                    function go() {
-                        let url = document.getElementById('targetUrl').value.replace(/^(https?:\\/\\/)?/, '');
-                        window.location.href = '/proxy/https/' + url;
-                    }
-                </script>
-            </body>
-            </html>
-        `);
-    } else {
-        res.status(401).send('Incorrect Password.');
-    }
-});
-
-// 4. Secure Dynamic Proxy Engine Route
-app.use('/proxy/:protocol/:domain(*)', (req, res, next) => {
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-    // Check if the user has authenticated their IP session
-    if (!authenticatedSessions.has(clientIp)) {
-        return res.status(403).send('Unauthorized: Please authenticate at the home directory first.');
+    if (!verifyToken(token, clientIp)) {
+        return res.status(403).send('Authentication missing or invalid token signature mapping credentials.');
     }
 
     const { protocol, domain } = req.params;
-    const targetTarget = `${protocol}://${domain}`;
-
-    // Create dynamic runtime proxy handler
-    const dynamicProxy = createProxyMiddleware({
-        target: targetTarget,
+    
+    createProxyMiddleware({
+        target: `${protocol}://${domain}`,
         changeOrigin: true,
         followRedirects: true,
-        pathRewrite: (path, req) => {
-            // Strips the internal proxy naming path out before querying the actual site
-            return path.replace(`/proxy/${protocol}/${domain}`, '');
+        pathRewrite: (path) => path.replace(`/pipeline/${protocol}/${domain}`, ''),
+        on: {
+            proxyReq: (pReq) => {
+                pReq.removeHeader('x-forwarded-for');
+                pReq.removeHeader('via');
+                pReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+            },
+            proxyRes: (pRes) => {
+                if (pRes.headers['location']) {
+                    let loc = pRes.headers['location'];
+                    const match = loc.match(/^(https?):\/\/(.*)/);
+                    if (match) pRes.headers['location'] = `/pipeline/${match[1]}/${match[2]}`;
+                }
+            }
         },
-        onError: (err, req, res) => {
-            res.status(500).send('Proxy error encountered mapping target resource.');
-        }
-    });
-
-    dynamicProxy(req, res, next);
+        onError: (err, req, res) => res.status(502).send('Host connection timeout error payload mapping index.')
+    })(req, res, next);
 });
 
-app.listen(PORT, () => {
-    console.log(`Secure Proxy running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Stealth active on port ${PORT}`));
