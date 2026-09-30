@@ -1,7 +1,7 @@
 {
-  "name": "private-secure-proxy",
+  "name": "stealth-gateway-proxy",
   "version": "1.0.0",
-  "description": "A private web proxy with authentication and IP controls",
+  "description": "Stealth reverse proxy gateway with hidden triggers",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
